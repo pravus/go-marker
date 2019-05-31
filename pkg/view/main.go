@@ -15,12 +15,13 @@ type highlighter interface {
 }
 
 type View struct {
+  stylesheet  string
   highlighter highlighter
   renderer    markdown.Renderer
 }
 
-func New (highlighter highlighter) *View {
-  view := &View{highlighter: highlighter}
+func New (stylesheet string, highlighter highlighter) *View {
+  view := &View{stylesheet: stylesheet, highlighter: highlighter}
   options := html.RendererOptions{
     RenderNodeHook: view.renderNode,
   }
@@ -30,41 +31,34 @@ func New (highlighter highlighter) *View {
 
 func (view *View) Render(w http.ResponseWriter, filename string, bytes []byte) error {
   w.Header().Set("Content-Type", "text/html")
-  w.Write([]byte(""+
-    "<!doctype html>\n"+
-    "<html>\n"+
-    "<head>\n"+
-    "  <meta charset=\"utf-8\">"+
-    "  <title>"+ filename +"</title>\n"+
-    "  <style>\n"+
-    "    .code-block {\n"+
-    "      background: #eee;\n"+
-    "      border: 1px solid #aaa;\n"+
-    "      border-radius: 4px;\n"+
-    "      margin: 1em 0em;\n"+
-    "      padding: 0em 1em;\n"+
-    "      \n"+
-    "      \n"+
-    "      \n"+
-    "      \n"+
-    "      \n"+
-    "    }\n"+
-    "  </style>\n"+
-    "</head>\n"+
-    "<body>\n"+
-    string(markdown.ToHTML(bytes, nil, view.renderer))+
-    "</body>\n"+
-    "</html>\n"+
-  ""))
+  htmlRoot.Execute(w, struct {
+    Filename   string
+    Stylesheet string
+    Body       string
+  }{
+    Filename:   filename,
+    Stylesheet: view.stylesheet,
+    Body:       string(markdown.ToHTML(bytes, nil, view.renderer)),
+  })
   return nil
 }
 
 func (view *View) renderNode (w io.Writer, gen ast.Node, entering bool) (ast.WalkStatus, bool) {
   switch node := gen.(type) {
+    case *ast.Code:
+      return view.renderCode(w, node, entering)
     case *ast.CodeBlock:
       return view.renderCodeBlock(w, node, entering)
   }
   return ast.GoToNext, false
+}
+
+func (view *View) renderCode (w io.Writer, node *ast.Code, entering bool) (ast.WalkStatus, bool) {
+  rendered := true
+  w.Write([]byte("<span class=\"code\">\n"))
+  w.Write(node.Literal)
+  w.Write([]byte("</span>\n"))
+  return ast.GoToNext, rendered
 }
 
 func (view *View) renderCodeBlock (w io.Writer, node *ast.CodeBlock, entering bool) (ast.WalkStatus, bool) {
