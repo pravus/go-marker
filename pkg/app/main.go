@@ -2,10 +2,13 @@ package app
 
 import (
   "fmt"
+  "html/template"
   "io"
   "io/ioutil"
+  "log"
   "net/http"
   "os"
+  "strings"
 
   "github.com/go-chi/chi"
 
@@ -35,6 +38,7 @@ func New(bind, stylesheet, style string) *App {
 
 func (app *App) Run() {
   r := chi.NewRouter()
+  r.Get("/",           app.index())
   r.Get("/{basename}", app.root())
 
   fmt.Printf("http.bind: %s\n", app.bind)
@@ -44,8 +48,35 @@ func (app *App) Run() {
   }
 }
 
+func (app *App) index() http.HandlerFunc {
+  index := template.Must(template.New("index").Parse(htmlIndex))
+  return http.HandlerFunc(func (w http.ResponseWriter, r *http.Request) {
+    list, err := ioutil.ReadDir(".")
+    if err != nil {
+      log.Printf("readdir: error=%v", err)
+      http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+      return
+    }
+    names := []string{}
+    for _, info := range list {
+      name := info.Name()
+      if strings.HasSuffix(name, ".md") {
+        names = append(names, name[0:len(name) - 3])
+      }
+    }
+    err = index.Execute(w, struct {
+      Names []string
+    }{
+      Names: names,
+    })
+    if err != nil {
+      log.Printf("template: error=%v", err)
+    }
+  })
+}
+
 func (app *App) root() http.HandlerFunc {
-  return func (w http.ResponseWriter, r *http.Request) {
+  return http.HandlerFunc(func (w http.ResponseWriter, r *http.Request) {
     basename := chi.URLParam(r, "basename")
 
     if basename == "favicon.ico" {
@@ -59,7 +90,7 @@ func (app *App) root() http.HandlerFunc {
     }
 
     app.renderMarkdown(w, r, basename + ".md")
-  }
+  })
 }
 
 func (app *App) renderMarkdown(w http.ResponseWriter, r *http.Request, filename string) {
